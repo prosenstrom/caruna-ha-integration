@@ -87,6 +87,8 @@ Yesterday / today sensors stay `unknown` until Caruna publishes those days. Mont
 ```
 uv sync
 uv run pytest
+uv sync --group ha
+uv run --group ha pytest tests/hass -p pytest_homeassistant_custom_component --asyncio-mode=auto
 uv run ruff check .
 uv run ruff format --check .
 ```

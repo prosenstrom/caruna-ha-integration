@@ -37,6 +37,26 @@ jobs:
       - name: Tests
         run: uv run pytest
 
+  hass:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          python-version: "3.14"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen --group ha
+
+      - name: Home Assistant tests
+        run: >-
+          uv run --group ha pytest tests/hass
+          -p pytest_homeassistant_custom_component
+          --asyncio-mode=auto
+
   hacs:
     runs-on: ubuntu-latest
     steps:
@@ -68,15 +88,17 @@ jobs:
     if: ${{ !cancelled() }}
     needs:
       - test
+      - hass
       - hacs
       - hassfest
       - secrets
     runs-on: ubuntu-latest
     permissions: {}
     steps:
-      - name: Require test, hacs, hassfest, and secrets
+      - name: Require test, hass, hacs, hassfest, and secrets
         run: |
           test "${{ needs.test.result }}" = "success"
+          test "${{ needs.hass.result }}" = "success"
           test "${{ needs.hacs.result }}" = "success"
           test "${{ needs.hassfest.result }}" = "success"
           test "${{ needs.secrets.result }}" = "success"
