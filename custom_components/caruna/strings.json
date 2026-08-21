@@ -1,0 +1,47 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Caruna+",
+        "description": "Sign in with the email and password you use at plus.caruna.fi. Usage is fetched over the internet, not from the meter. This is the grid (siirto) meter, not your electricity retailer.",
+        "data": {
+          "username": "Email",
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Email or password was rejected by Caruna+.",
+      "cannot_connect": "Could not reach Caruna+.",
+      "unknown": "Unexpected error. Check the Home Assistant log."
+    },
+    "abort": {
+      "already_configured": "This Caruna+ account is already configured.",
+      "no_metering_points": "The account has no electricity metering points.",
+      "reauth_successful": "Caruna+ credentials were updated."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Caruna+ cost settings",
+        "description": "Hourly Energy dashboard cost is (spot + margin) × (1 + VAT %) + transfer + tax. Amounts are EUR/kWh. Spot is Nord Pool FI (from energy-charts, with the official Nord Pool integration as fallback). Set extra rates to 0 to store spot-only cost. Changing rates re-imports the cost series.",
+        "data": {
+          "enable_cost": "Import hourly cost statistics",
+          "vat": "VAT",
+          "margin": "Retailer margin",
+          "transfer": "Grid transfer",
+          "tax": "Electricity tax"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "yesterday": { "name": "Yesterday" },
+      "today": { "name": "Today" },
+      "month": { "name": "This month" },
+      "last_hour": { "name": "Last hour" }
+    }
+  }
+}

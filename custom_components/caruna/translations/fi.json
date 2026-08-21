@@ -1,0 +1,47 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Yhdistä Caruna+",
+        "description": "Kirjaudu samalla sähköpostilla ja salasanalla kuin plus.caruna.fi. Kulutus haetaan internetin yli, ei mittarilta. Tämä on verkkoyhtiön (siirto) mittari, ei sähkönmyyjä.",
+        "data": {
+          "username": "Sähköposti",
+          "password": "Salasana"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "Caruna+ hylkäsi sähköpostin tai salasanan.",
+      "cannot_connect": "Caruna+ ei vastannut.",
+      "unknown": "Odottamaton virhe. Tarkista Home Assistantin loki."
+    },
+    "abort": {
+      "already_configured": "Tämä Caruna+-tili on jo lisätty.",
+      "no_metering_points": "Tilillä ei ole sähkön mittauspisteitä.",
+      "reauth_successful": "Caruna+-tunnukset päivitettiin."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Caruna+ kustannusasetukset",
+        "description": "Energianäytön tuntikohtainen hinta on (pörssi + marginaali) × (1 + ALV %) + siirto + vero. Summat ovat EUR/kWh. Pörssihinta on Nord Pool FI. Aseta lisät nollaan, jos haluat vain pörssihinnan. Muutos tuo kustannussarjan uudelleen.",
+        "data": {
+          "enable_cost": "Tuo tuntikohtaiset kustannustilastot",
+          "vat": "ALV",
+          "margin": "Myyjän marginaali",
+          "transfer": "Siirto",
+          "tax": "Sähkövero"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "yesterday": { "name": "Eilen" },
+      "today": { "name": "Tänään" },
+      "month": { "name": "Tämä kuukausi" },
+      "last_hour": { "name": "Viimeisin tunti" }
+    }
+  }
+}

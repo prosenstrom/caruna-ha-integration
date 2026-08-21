@@ -1,0 +1,16 @@
+{
+  "domain": "caruna",
+  "name": "Caruna+",
+  "after_dependencies": ["recorder"],
+  "codeowners": ["@prosenstrom"],
+  "config_flow": true,
+  "documentation": "https://github.com/prosenstrom/caruna-ha-integration",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/prosenstrom/caruna-ha-integration/issues",
+  "loggers": ["custom_components.caruna", "pycaruna"],
+  "requirements": [
+    "pycaruna @ git+https://github.com/prosenstrom/pycaruna.git@v1.1.1"
+  ],
+  "version": "1.2.0"
+}
