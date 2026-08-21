@@ -1,7 +1,7 @@
 # Caruna+ Home Assistant integration
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
-[![Tests](https://github.com/prosenstrom/caruna-ha-integration/actions/workflows/test.yml/badge.svg)](https://github.com/prosenstrom/caruna-ha-integration/actions/workflows/test.yml)
+[![CI](https://github.com/prosenstrom/caruna-ha-integration/actions/workflows/ci.yml/badge.svg)](https://github.com/prosenstrom/caruna-ha-integration/actions/workflows/ci.yml)
 
 Home Assistant custom component for [Caruna+](https://plus.caruna.fi/) metering data. It wraps [prosenstrom/pycaruna](https://github.com/prosenstrom/pycaruna) the same way [Oma Helen](https://github.com/carohauta/oma-helen-ha-integration) wraps `oma-helen-cli`.
 
