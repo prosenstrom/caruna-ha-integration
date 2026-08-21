@@ -163,6 +163,90 @@ def test_hour_spot_averages_quarter_hours(caruna_modules):
     assert helpers.hour_spot(hour, spots) == pytest.approx(0.05)
 
 
+def test_hour_spot_missing_returns_none(caruna_modules):
+    helpers = caruna_modules.helpers
+    hour = datetime(2026, 8, 15, 21, 0, tzinfo=UTC)
+    later = datetime(2026, 8, 15, 22, 0, tzinfo=UTC)
+    assert helpers.hour_spot(hour, {}) is None
+    assert helpers.hour_spot(hour, {later: 0.04}) is None
+
+
+def test_parse_timestamp_naive_is_helsinki(caruna_modules):
+    helpers = caruna_modules.helpers
+    moment = helpers.parse_timestamp("2026-01-01T00:00:00")
+    assert moment == datetime(2025, 12, 31, 22, 0, tzinfo=UTC)
+
+
+def test_helsinki_date_uses_finnish_calendar(caruna_modules):
+    helpers = caruna_modules.helpers
+    # 21:00 UTC on 15 Aug is 00:00 on 16 Aug in Helsinki (EEST).
+    moment = datetime(2026, 8, 15, 21, 0, tzinfo=UTC)
+    assert helpers.helsinki_date(moment).isoformat() == "2026-08-16"
+
+
+def test_account_unique_id_normalizes_email(caruna_modules):
+    helpers = caruna_modules.helpers
+    assert helpers.account_unique_id("  A@B.FI ") == "a@b.fi"
+
+
+def test_continue_sum_falls_back_to_last_when_window_missing(caruna_modules):
+    helpers = caruna_modules.helpers
+    last_start = datetime(2026, 8, 1, 0, 0, tzinfo=UTC)
+    running, start = helpers.continue_sum(
+        rebuild=False,
+        window_first=None,
+        last=(last_start, 100.0),
+    )
+    assert running == 100.0
+    assert start == last_start
+
+
+def test_continue_sum_prefers_window_overlap(caruna_modules):
+    helpers = caruna_modules.helpers
+    window_start = datetime(2026, 8, 14, 21, 0, tzinfo=UTC)
+    last_start = datetime(2026, 8, 16, 20, 0, tzinfo=UTC)
+    running, start = helpers.continue_sum(
+        rebuild=False,
+        window_first=(window_start, 10.0),
+        last=(last_start, 99.0),
+    )
+    assert running == 10.0
+    assert start == window_start
+
+
+def test_continue_sum_rebuild_starts_at_zero(caruna_modules):
+    helpers = caruna_modules.helpers
+    last_start = datetime(2026, 8, 1, 0, 0, tzinfo=UTC)
+    running, start = helpers.continue_sum(
+        rebuild=True,
+        window_first=None,
+        last=(last_start, 100.0),
+    )
+    assert running == 0.0
+    assert start is None
+
+
+def test_is_transient_status(caruna_modules):
+    helpers = caruna_modules.helpers
+    assert helpers.is_transient_status(None)
+    assert helpers.is_transient_status(500)
+    assert helpers.is_transient_status(503)
+    assert not helpers.is_transient_status(404)
+    assert not helpers.is_transient_status(400)
+
+
+def test_resolve_cost_rates_partial_legacy_uses_defaults(caruna_modules):
+    helpers = caruna_modules.helpers
+    const = caruna_modules.const
+    rates = helpers.resolve_cost_rates(
+        {},
+        lambda entity_id: {const.LEGACY_ENTITY_TAX: 0.0282752}.get(entity_id),
+    )
+    assert rates.tax == 0.0282752
+    assert rates.margin == const.DEFAULT_MARGIN
+    assert rates.transfer == const.DEFAULT_TRANSFER
+
+
 def test_rates_changed(caruna_modules):
     helpers = caruna_modules.helpers
     const = caruna_modules.const

@@ -23,26 +23,27 @@ from homeassistant.util import dt as dt_util
 from . import CarunaConfigEntry
 from .const import DOMAIN
 from .coordinator import CarunaCoordinator
-from .helpers import statistic_id_for
+from .helpers import HELSINKI, statistic_id_for
 
 
 def _attr_hours(hours: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [
         {
-            "start": dt_util.as_local(item["start"]).isoformat(),
+            "start": item["start"].astimezone(HELSINKI).isoformat(),
             "kwh": round(item["consumption"], 3),
         }
         for item in hours
     ]
 
 
-def _start_of_local_day(days_ago: int = 0) -> datetime:
-    start = dt_util.now().replace(hour=0, minute=0, second=0, microsecond=0)
+def _start_of_helsinki_day(days_ago: int = 0) -> datetime:
+    start = dt_util.now(HELSINKI).replace(hour=0, minute=0, second=0, microsecond=0)
     return start - timedelta(days=days_ago)
 
 
-def _start_of_month() -> datetime:
-    return dt_util.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+def _start_of_helsinki_month() -> datetime:
+    now = dt_util.now(HELSINKI)
+    return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -63,7 +64,7 @@ SENSORS: tuple[CarunaSensorEntityDescription, ...] = (
         state_class=SensorStateClass.TOTAL,
         suggested_display_precision=2,
         value_fn=lambda point: point.get("yesterday"),
-        last_reset_fn=lambda: _start_of_local_day(1),
+        last_reset_fn=lambda: _start_of_helsinki_day(1),
         attrs_fn=lambda point: {
             "hours": _attr_hours(point.get("yesterday_hours") or []),
             "statistic_id": statistic_id_for(point["asset_id"]),
@@ -77,7 +78,7 @@ SENSORS: tuple[CarunaSensorEntityDescription, ...] = (
         state_class=SensorStateClass.TOTAL,
         suggested_display_precision=2,
         value_fn=lambda point: point.get("today"),
-        last_reset_fn=_start_of_local_day,
+        last_reset_fn=_start_of_helsinki_day,
         attrs_fn=lambda point: {"hours": _attr_hours(point.get("today_hours") or [])},
     ),
     CarunaSensorEntityDescription(
@@ -88,19 +89,19 @@ SENSORS: tuple[CarunaSensorEntityDescription, ...] = (
         state_class=SensorStateClass.TOTAL,
         suggested_display_precision=2,
         value_fn=lambda point: point.get("month"),
-        last_reset_fn=_start_of_month,
+        last_reset_fn=_start_of_helsinki_month,
     ),
     CarunaSensorEntityDescription(
         key="last_hour",
         translation_key="last_hour",
         native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
         device_class=SensorDeviceClass.ENERGY,
-        state_class=SensorStateClass.TOTAL,
+        state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=2,
         value_fn=lambda point: point.get("last_hour"),
         attrs_fn=lambda point: {
             "start": (
-                dt_util.as_local(point["last_hour_start"]).isoformat()
+                point["last_hour_start"].astimezone(HELSINKI).isoformat()
                 if point.get("last_hour_start")
                 else None
             )

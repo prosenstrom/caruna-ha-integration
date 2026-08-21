@@ -8,6 +8,14 @@
           "username": "Sähköposti",
           "password": "Salasana"
         }
+      },
+      "reauth_confirm": {
+        "title": "Tunnistaudu uudelleen Caruna+:aan",
+        "description": "Tallennettu salasana kohteelle {name} hylättiin. Syötä plus.caruna.fi-sähköposti ja -salasana.",
+        "data": {
+          "username": "Sähköposti",
+          "password": "Salasana"
+        }
       }
     },
     "error": {
@@ -18,7 +26,9 @@
     "abort": {
       "already_configured": "Tämä Caruna+-tili on jo lisätty.",
       "no_metering_points": "Tilillä ei ole sähkön mittauspisteitä.",
-      "reauth_successful": "Caruna+-tunnukset päivitettiin."
+      "no_customer_ids": "Tällä Caruna+-tunnuksella ei ole asiakasnumeroita. Varmista, että tili avaa plus.caruna.fi.",
+      "reauth_successful": "Caruna+-tunnukset päivitettiin.",
+      "unique_id_mismatch": "Tunnukset kuuluvat eri Caruna+-tilille."
     }
   },
   "options": {

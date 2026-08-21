@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
+
+from pycaruna import energy_kwh
 
 from .const import (
     CONF_ENABLE_COST,
@@ -22,10 +25,48 @@ from .const import (
     LEGACY_ENTITY_MARGIN,
     LEGACY_ENTITY_TAX,
     LEGACY_ENTITY_TRANSFER,
-    LEGACY_MARGIN,
-    LEGACY_TAX,
-    LEGACY_TRANSFER,
 )
+
+HELSINKI = ZoneInfo("Europe/Helsinki")
+TOKEN_TTL_SECONDS = 50 * 60
+
+
+def account_unique_id(username: str) -> str:
+    """Stable config-entry unique id for a Caruna+ login."""
+    return username.strip().lower()
+
+
+def helsinki_date(moment: datetime) -> date:
+    """Calendar date of a timestamp in Europe/Helsinki."""
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=HELSINKI)
+    return moment.astimezone(HELSINKI).date()
+
+
+def is_transient_status(status_code: int | None) -> bool:
+    """True when a Caruna error should be retried (5xx or unknown)."""
+    return status_code is None or status_code >= 500
+
+
+def continue_sum(
+    *,
+    rebuild: bool,
+    window_first: tuple[datetime, float] | None,
+    last: tuple[datetime, float] | None,
+) -> tuple[float, datetime | None]:
+    """Running sum and last start to continue an external statistic series.
+
+    Prefer the first row in the refresh window so late Caruna hours can be
+    rewritten. If that window does not overlap existing statistics, continue
+    from the global last row instead of restarting at 0.
+    """
+    if rebuild:
+        return 0.0, None
+    if window_first is not None:
+        return window_first[1], window_first[0]
+    if last is not None:
+        return last[1], last[0]
+    return 0.0, None
 
 
 def asset_label(asset: dict[str, Any]) -> str:
@@ -67,14 +108,15 @@ def payload_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
 
 def row_kwh(row: dict[str, Any]) -> float | None:
     """kWh from a current or older Caruna energy row."""
-    for key in ("consumption", "totalConsumption", "invoicedConsumption"):
-        if row.get(key) is not None:
-            return float(row[key])
-    return None
+    value = energy_kwh(row)
+    return float(value) if value is not None else None
 
 
 def parse_timestamp(value: Any) -> datetime | None:
-    """Parse a Caruna timestamp into UTC."""
+    """Parse a Caruna timestamp into UTC.
+
+    Naive values are Europe/Helsinki wall time, not UTC.
+    """
     if not value:
         return None
     text = str(value).strip().replace("Z", "+00:00")
@@ -83,7 +125,7 @@ def parse_timestamp(value: Any) -> datetime | None:
     except ValueError:
         return None
     if moment.tzinfo is None:
-        moment = moment.replace(tzinfo=UTC)
+        moment = moment.replace(tzinfo=HELSINKI)
     return moment.astimezone(UTC)
 
 
@@ -133,9 +175,9 @@ def hour_spot(hour_start: datetime, spots: dict[datetime, float]) -> float | Non
     hour_start = hour_start.replace(minute=0, second=0, microsecond=0)
     hour_end = hour_start + timedelta(hours=1)
     values = [price for start, price in spots.items() if hour_start <= start < hour_end]
-    if values:
-        return sum(values) / len(values)
-    return spots.get(hour_start)
+    if not values:
+        return None
+    return sum(values) / len(values)
 
 
 @dataclass(frozen=True)
@@ -206,9 +248,9 @@ def resolve_cost_rates(
     return CostRates(
         enabled=rates.enabled,
         vat_multiplier=rates.vat_multiplier,
-        margin=LEGACY_MARGIN if margin is None else margin,
-        transfer=LEGACY_TRANSFER if transfer is None else transfer,
-        tax=LEGACY_TAX if tax is None else tax,
+        margin=DEFAULT_MARGIN if margin is None else margin,
+        transfer=DEFAULT_TRANSFER if transfer is None else transfer,
+        tax=DEFAULT_TAX if tax is None else tax,
     )
 
 

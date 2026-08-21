@@ -8,7 +8,7 @@ dependencies = []
 
 [dependency-groups]
 dev = [
-    "pycaruna @ git+https://github.com/prosenstrom/pycaruna.git@v1.1.1",
+    "pycaruna @ git+https://github.com/prosenstrom/pycaruna.git@811cad65359c1afc8c3b89b6331cb3e823a4cd16",
     "pytest>=8",
     "pytest-cov>=6",
     "ruff>=0.12",
@@ -24,6 +24,8 @@ addopts = [
     "-v",
     "--tb=short",
     "--strict-markers",
+    "--cov=custom_components/caruna",
+    "--cov-report=term-missing",
 ]
 
 [tool.ruff]

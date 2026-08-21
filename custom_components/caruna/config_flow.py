@@ -29,7 +29,6 @@ from homeassistant.helpers.selector import (
 from .client import CarunaApiError, CarunaAuthError, CarunaClient
 from .const import (
     CONF_ASSET_ID,
-    CONF_BACKFILL_DONE,
     CONF_COST_BACKFILL_DONE,
     CONF_CUSTOMER_ID,
     CONF_ENABLE_COST,
@@ -41,6 +40,7 @@ from .const import (
     DOMAIN,
 )
 from .helpers import (
+    account_unique_id,
     asset_label,
     default_options,
     rates_changed,
@@ -117,6 +117,22 @@ def _options_schema() -> vol.Schema:
     )
 
 
+def _credentials_schema(username: str | None = None) -> vol.Schema:
+    username_default = username or vol.UNDEFINED
+    return vol.Schema(
+        {
+            vol.Required(CONF_USERNAME, default=username_default): TextSelector(
+                TextSelectorConfig(type=TextSelectorType.EMAIL, autocomplete="username")
+            ),
+            vol.Required(CONF_PASSWORD): TextSelector(
+                TextSelectorConfig(
+                    type=TextSelectorType.PASSWORD, autocomplete="current-password"
+                )
+            ),
+        }
+    )
+
+
 class CarunaConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Caruna+."""
 
@@ -132,11 +148,40 @@ class CarunaConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Collect Caruna+ email and password."""
+        return await self._async_handle_credentials(
+            user_input, "user", STEP_USER_DATA_SCHEMA
+        )
+
+    async def async_step_reauth(
+        self, entry_data: Mapping[str, Any]
+    ) -> ConfigFlowResult:
+        """Handle expired or changed Caruna+ credentials."""
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Ask for the password of the already configured account."""
+        entry = self._get_reauth_entry()
+        return await self._async_handle_credentials(
+            user_input,
+            "reauth_confirm",
+            _credentials_schema(entry.data.get(CONF_USERNAME)),
+        )
+
+    async def _async_handle_credentials(
+        self,
+        user_input: dict[str, Any] | None,
+        step_id: str,
+        schema: vol.Schema,
+    ) -> ConfigFlowResult:
         errors: dict[str, str] = {}
         if user_input:
             client = CarunaClient(user_input[CONF_USERNAME], user_input[CONF_PASSWORD])
             try:
                 await self.hass.async_add_executor_job(client.login)
+                if not client.customer_ids():
+                    return self.async_abort(reason="no_customer_ids")
                 points = await self.hass.async_add_executor_job(
                     client.get_metering_points
                 )
@@ -153,9 +198,9 @@ class CarunaConfigFlow(ConfigFlow, domain=DOMAIN):
                 if not points:
                     return self.async_abort(reason="no_metering_points")
 
-                customer_ids = client.customer_ids()
-                unique = customer_ids[0] if customer_ids else user_input[CONF_USERNAME]
-                await self.async_set_unique_id(str(unique))
+                await self.async_set_unique_id(
+                    account_unique_id(user_input[CONF_USERNAME])
+                )
 
                 stored_points = [
                     {
@@ -173,6 +218,7 @@ class CarunaConfigFlow(ConfigFlow, domain=DOMAIN):
                     CONF_POINTS: stored_points,
                 }
                 if self.source == SOURCE_REAUTH:
+                    self._abort_if_unique_id_mismatch()
                     return self.async_update_reload_and_abort(
                         self._get_reauth_entry(), data_updates=data
                     )
@@ -184,15 +230,7 @@ class CarunaConfigFlow(ConfigFlow, domain=DOMAIN):
                     title=title, data=data, options=default_options()
                 )
 
-        return self.async_show_form(
-            step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors
-        )
-
-    async def async_step_reauth(
-        self, entry_data: Mapping[str, Any]
-    ) -> ConfigFlowResult:
-        """Handle expired or changed Caruna+ credentials."""
-        return await self.async_step_user()
+        return self.async_show_form(step_id=step_id, data_schema=schema, errors=errors)
 
 
 class CarunaOptionsFlow(OptionsFlowWithReload):
@@ -216,9 +254,6 @@ class CarunaOptionsFlow(OptionsFlowWithReload):
                 options[CONF_COST_BACKFILL_DONE] = True
             elif rates_changed(previous, options):
                 options[CONF_COST_BACKFILL_DONE] = False
-            options.setdefault(
-                CONF_BACKFILL_DONE, previous.get(CONF_BACKFILL_DONE, False)
-            )
             return self.async_create_entry(data=options)
 
         suggested = suggested_cost_options(

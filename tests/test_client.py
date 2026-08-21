@@ -50,14 +50,14 @@ def test_get_metering_points_raises_without_customer_ids(caruna_modules):
         client.get_metering_points()
 
 
-def test_get_energy_retries_after_api_error(caruna_modules):
+def test_get_energy_retries_after_auth_error(caruna_modules):
     client_mod = caruna_modules.client
     client = client_mod.CarunaClient("a@b.fi", "secret")
     client._token = "tok"
     client._expires_at = 9_999_999_999
     api = Mock()
     api.get_energy.side_effect = [
-        CarunaApiError("expired", status_code=401),
+        CarunaAuthError("expired", status_code=401),
         {"results": [{"data": []}]},
     ]
     client._api = api
@@ -68,6 +68,32 @@ def test_get_energy_retries_after_api_error(caruna_modules):
     login.assert_called_once()
     assert payload == {"results": [{"data": []}]}
     assert api.get_energy.call_count == 2
+
+
+def test_get_energy_does_not_retry_api_error(caruna_modules):
+    client_mod = caruna_modules.client
+    client = client_mod.CarunaClient("a@b.fi", "secret")
+    client._token = "tok"
+    client._expires_at = 9_999_999_999
+    api = Mock()
+    api.get_energy.side_effect = CarunaApiError("server", status_code=500)
+    client._api = api
+    with patch.object(client, "login") as login:
+        with pytest.raises(CarunaApiError, match="server"):
+            client.get_energy("c", "a", client_mod.TimeSpan.DAILY, date(2026, 8, 16))
+    login.assert_not_called()
+
+
+def test_login_defaults_expiry_when_missing(caruna_modules):
+    client_mod = caruna_modules.client
+    result = {"token": "tok", "user": {"ownCustomerNumbers": ["123"]}}
+    with patch.object(client_mod, "Authenticator") as auth_cls:
+        auth_cls.return_value.login.return_value = result
+        with patch.object(client_mod, "CarunaPlus"):
+            with patch.object(client_mod.time, "time", return_value=1_000_000):
+                client = client_mod.CarunaClient("a@b.fi", "secret")
+                client.login()
+    assert client._expires_at == 1_000_000 + client_mod.TOKEN_TTL_SECONDS
 
 
 def test_ensure_session_logs_in_when_token_missing(caruna_modules):

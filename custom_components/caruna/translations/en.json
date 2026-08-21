@@ -8,6 +8,14 @@
           "username": "Email",
           "password": "Password"
         }
+      },
+      "reauth_confirm": {
+        "title": "Reauthenticate Caruna+",
+        "description": "The saved password for {name} was rejected. Enter the email and password you use at plus.caruna.fi.",
+        "data": {
+          "username": "Email",
+          "password": "Password"
+        }
       }
     },
     "error": {
@@ -18,7 +26,9 @@
     "abort": {
       "already_configured": "This Caruna+ account is already configured.",
       "no_metering_points": "The account has no electricity metering points.",
-      "reauth_successful": "Caruna+ credentials were updated."
+      "no_customer_ids": "This Caruna+ login has no customer numbers. Check that the account can open plus.caruna.fi.",
+      "reauth_successful": "Caruna+ credentials were updated.",
+      "unique_id_mismatch": "Those credentials belong to a different Caruna+ account."
     }
   },
   "options": {

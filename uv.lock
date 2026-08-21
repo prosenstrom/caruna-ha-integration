@@ -32,7 +32,7 @@ dev = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "pycaruna", git = "https://github.com/prosenstrom/pycaruna.git?rev=v1.1.1" },
+    { name = "pycaruna", git = "https://github.com/prosenstrom/pycaruna.git?rev=811cad65359c1afc8c3b89b6331cb3e823a4cd16" },
     { name = "pytest", specifier = ">=8" },
     { name = "pytest-cov", specifier = ">=6" },
     { name = "ruff", specifier = ">=0.12" },
@@ -435,7 +435,7 @@ wheels = [
 [[package]]
 name = "pycaruna"
 version = "1.1.1"
-source = { git = "https://github.com/prosenstrom/pycaruna.git?rev=v1.1.1#811cad65359c1afc8c3b89b6331cb3e823a4cd16" }
+source = { git = "https://github.com/prosenstrom/pycaruna.git?rev=811cad65359c1afc8c3b89b6331cb3e823a4cd16#811cad65359c1afc8c3b89b6331cb3e823a4cd16" }
 dependencies = [
     { name = "beautifulsoup4" },
     { name = "lxml" },

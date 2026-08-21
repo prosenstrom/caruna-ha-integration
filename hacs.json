@@ -2,6 +2,6 @@
   "name": "Caruna+",
   "content_in_root": false,
   "country": "FI",
-  "homeassistant": "2025.1.0",
+  "homeassistant": "2025.8.0",
   "render_readme": true
 }

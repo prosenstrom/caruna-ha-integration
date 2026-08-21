@@ -28,6 +28,8 @@ The recommended way is to install via HACS.
 
 [![Open your Home Assistant instance and open the Caruna+ custom component repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=prosenstrom&repository=caruna-ha-integration&category=integration)
 
+Requires Home Assistant **2025.8** or later.
+
 Then restart Home Assistant and add **Caruna+** via **Settings → Devices & services → Add integration**.
 
 ### How to install manually
@@ -74,7 +76,8 @@ Yesterday / today sensors stay `unknown` until Caruna publishes those days. Mont
 
 ## Caveats
 
-- Requires the 2026 Caruna+ API client (`pycaruna` v1.1.1 from `prosenstrom/pycaruna`), not upstream `Jalle19/pycaruna` 1.0.3
+- Requires Home Assistant 2025.8 or later
+- Requires the 2026 Caruna+ API client (`pycaruna` from `prosenstrom/pycaruna`), not upstream `Jalle19/pycaruna` 1.0.3
 - Token lasts about an hour; the integration logs in again as needed
 - After a password change, Home Assistant will ask to reauthenticate
 - Not live power. For that, activate the meter HAN / P1 port in Caruna+

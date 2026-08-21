@@ -30,10 +30,7 @@ DEFAULT_TRANSFER = 0.0
 # Finnish electricity tax, EUR/kWh, billed amount including VAT.
 DEFAULT_TAX = 0.0282752
 
-# Pre-options local installs used these template sensors as live rates.
+# Unmigrated entries without option keys still read these template sensors.
 LEGACY_ENTITY_MARGIN = "sensor.sahko_marginaali"
 LEGACY_ENTITY_TRANSFER = "sensor.sahko_siirto"
 LEGACY_ENTITY_TAX = "sensor.sahko_sahkovero"
-LEGACY_MARGIN = 0.0039
-LEGACY_TRANSFER = 0.0526
-LEGACY_TAX = 0.0282752

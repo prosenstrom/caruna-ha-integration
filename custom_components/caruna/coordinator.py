@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import calendar
+from contextlib import suppress
 from datetime import date, datetime, timedelta
 import logging
 from typing import TYPE_CHECKING, Any, cast
@@ -43,12 +44,17 @@ from .const import (
     UPDATE_INTERVAL,
 )
 from .helpers import (
+    HELSINKI,
     CostRates,
     asset_label,
+    continue_sum,
     cost_statistic_id_for,
+    helsinki_date,
     hour_spot,
     hourly_buckets,
+    is_transient_status,
     parse_slots,
+    parse_timestamp,
     payload_rows,
     resolve_cost_rates,
     row_kwh,
@@ -59,8 +65,6 @@ if TYPE_CHECKING:
     from . import CarunaConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
-
-HELSINKI = dt_util.get_time_zone("Europe/Helsinki")
 
 
 def _float_state(hass: HomeAssistant, entity_id: str) -> float | None:
@@ -73,13 +77,9 @@ def _float_state(hass: HomeAssistant, entity_id: str) -> float | None:
         return None
 
 
-def _local_date(moment: datetime) -> date:
-    return dt_util.as_local(moment).date()
-
-
 def _sum_on_date(hours: list[dict[str, Any]], day: date) -> float | None:
     matching = [
-        item["consumption"] for item in hours if _local_date(item["start"]) == day
+        item["consumption"] for item in hours if helsinki_date(item["start"]) == day
     ]
     if not matching:
         return None
@@ -109,19 +109,35 @@ class CarunaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             lambda entity_id: _float_state(self.hass, entity_id),
         )
 
-    def schedule_backfill(self) -> None:
-        """Start a full history import when kWh or cost still need backfill."""
+    def schedule_backfill(self) -> bool:
+        """Start a full history import when kWh or cost still need backfill.
+
+        Returns True if a new task was started.
+        """
         options = self.config_entry.options
         cost_done = options.get(CONF_COST_BACKFILL_DONE)
         if not options.get(CONF_ENABLE_COST, True):
             cost_done = True
         if options.get(CONF_BACKFILL_DONE) and cost_done:
-            return
+            return False
         if self._backfill_task is not None and not self._backfill_task.done():
-            return
-        self._backfill_task = self.hass.async_create_task(
-            self._async_full_backfill(), name="caruna_history_backfill"
+            return False
+        self._backfill_task = self.config_entry.async_create_background_task(
+            self.hass,
+            self._async_full_backfill(),
+            "caruna_history_backfill",
         )
+        return True
+
+    async def async_shutdown(self) -> None:
+        """Stop polling and cancel an in-flight history backfill."""
+        task = self._backfill_task
+        self._backfill_task = None
+        if task is not None and not task.done():
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+        await super().async_shutdown()
 
     async def _async_update_data(self) -> dict[str, Any]:
         try:
@@ -131,15 +147,22 @@ class CarunaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except CarunaApiError as err:
             raise UpdateFailed(str(err)) from err
 
-        rates = self._cost_rates()
-        for point in data["points"].values():
-            await self._async_import_statistics(
-                point["asset_id"], point["name"], point["hours"]
-            )
-            if rates.enabled and self.config_entry.options.get(CONF_COST_BACKFILL_DONE):
-                await self._async_import_cost_statistics(
-                    point["asset_id"], point["name"]
-                )
+        if not self._backfill_lock.locked():
+            async with self._backfill_lock:
+                rates = self._cost_rates()
+                for point in data["points"].values():
+                    await self._async_import_statistics(
+                        point["asset_id"], point["name"], point["hours"]
+                    )
+                    if rates.enabled and self.config_entry.options.get(
+                        CONF_COST_BACKFILL_DONE
+                    ):
+                        await self._async_import_cost_statistics(
+                            point["asset_id"], point["name"]
+                        )
+
+        if self.hass.is_running:
+            self.schedule_backfill()
         return data
 
     def _fetch_data(self) -> dict[str, Any]:
@@ -168,7 +191,7 @@ class CarunaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         customer_id = point[CONF_CUSTOMER_ID]
         asset_id = point[CONF_ASSET_ID]
         start = today - timedelta(days=REFRESH_DAYS - 1)
-        slots = self._fetch_daily_range(customer_id, asset_id, start, today)
+        slots, _transient = self._fetch_daily_range(customer_id, asset_id, start, today)
 
         by_start = {slot["start"]: slot for slot in slots}
         hours = hourly_buckets([by_start[key] for key in sorted(by_start)])
@@ -205,17 +228,18 @@ class CarunaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "last_hour": last_hour["consumption"] if last_hour else None,
             "last_hour_start": last_hour["start"] if last_hour else None,
             "yesterday_hours": [
-                item for item in hours if _local_date(item["start"]) == yesterday
+                item for item in hours if helsinki_date(item["start"]) == yesterday
             ],
             "today_hours": [
-                item for item in hours if _local_date(item["start"]) == today
+                item for item in hours if helsinki_date(item["start"]) == today
             ],
         }
 
     def _fetch_daily_range(
         self, customer_id: str, asset_id: str, start: date, end: date
-    ) -> list[dict[str, Any]]:
+    ) -> tuple[list[dict[str, Any]], int]:
         slots: list[dict[str, Any]] = []
+        transient = 0
         cursor = start
         while cursor <= end:
             try:
@@ -224,17 +248,20 @@ class CarunaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
             except CarunaApiError as err:
                 _LOGGER.warning("Skipping Caruna+ day %s: %s", cursor, err)
+                if is_transient_status(err.status_code):
+                    transient += 1
             else:
                 slots.extend(parse_slots(payload))
             cursor += timedelta(days=1)
-        return slots
+        return slots, transient
 
     def _discover_months(
         self, customer_id: str, asset_id: str, today: date
-    ) -> list[tuple[int, int]]:
+    ) -> tuple[list[tuple[int, int]], bool]:
         """Return (year, month) pairs that Caruna has kWh for, newest years first."""
         months: list[tuple[int, int]] = []
         found_any = False
+        incomplete = False
         for year in range(today.year, today.year - BACKFILL_YEAR_LIMIT, -1):
             try:
                 payload = self.client.get_energy(
@@ -242,6 +269,8 @@ class CarunaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
             except CarunaApiError as err:
                 _LOGGER.warning("Skipping Caruna+ year %s: %s", year, err)
+                if is_transient_status(err.status_code):
+                    incomplete = True
                 if found_any:
                     break
                 continue
@@ -249,11 +278,11 @@ class CarunaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             for row in payload_rows(payload):
                 if row_kwh(row) is None:
                     continue
-                start = dt_util.parse_datetime(row.get("timestamp") or "")
+                start = parse_timestamp(row.get("timestamp") or "")
                 if start is None:
                     continue
-                local = dt_util.as_local(start)
-                year_months.append((local.year, local.month))
+                local_day = helsinki_date(start)
+                year_months.append((local_day.year, local_day.month))
             if not year_months:
                 if found_any:
                     break
@@ -261,25 +290,34 @@ class CarunaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             found_any = True
             months.extend(year_months)
         months.sort()
-        return months
+        return months, incomplete
 
     def _fetch_all_history(self) -> dict[str, Any]:
         points = list(self.config_entry.data.get(CONF_POINTS) or [])
         if not points:
             raise UpdateFailed("No Caruna+ metering points on this account")
         today = dt_util.now(HELSINKI).date()
-        result: dict[str, Any] = {"points": {}}
+        result: dict[str, Any] = {"points": {}, "incomplete": False}
         for point in points:
             customer_id = point[CONF_CUSTOMER_ID]
             asset_id = point[CONF_ASSET_ID]
-            months = self._discover_months(customer_id, asset_id, today)
+            months, months_incomplete = self._discover_months(
+                customer_id, asset_id, today
+            )
+            if months_incomplete:
+                result["incomplete"] = True
             slots: list[dict[str, Any]] = []
             for year, month in months:
                 last_day = calendar.monthrange(year, month)[1]
                 start = date(year, month, 1)
                 end = min(date(year, month, last_day), today)
                 _LOGGER.info("Backfilling Caruna+ %s %04d-%02d", asset_id, year, month)
-                slots.extend(self._fetch_daily_range(customer_id, asset_id, start, end))
+                day_slots, transient = self._fetch_daily_range(
+                    customer_id, asset_id, start, end
+                )
+                if transient:
+                    result["incomplete"] = True
+                slots.extend(day_slots)
             by_start = {slot["start"]: slot for slot in slots}
             hours = hourly_buckets([by_start[key] for key in sorted(by_start)])
             result["points"][asset_id] = {
@@ -291,75 +329,88 @@ class CarunaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _async_full_backfill(self) -> None:
         """Pull every Caruna hour on the meter, then the matching cost series."""
-        async with self._backfill_lock:
-            if not self.config_entry.options.get(CONF_BACKFILL_DONE):
-                _LOGGER.warning("Starting full Caruna+ history backfill")
-                try:
-                    data = await self.hass.async_add_executor_job(
-                        self._fetch_all_history
-                    )
-                except CarunaAuthError:
-                    _LOGGER.exception("Caruna+ backfill login failed")
-                    return
-                except (CarunaApiError, UpdateFailed) as err:
-                    _LOGGER.warning("Caruna+ backfill failed: %s", err)
-                    return
+        try:
+            async with self._backfill_lock:
+                await self._async_run_backfill()
+        except asyncio.CancelledError:
+            raise
+        if self.hass.is_running:
+            await self.async_request_refresh()
 
-                imported = 0
-                for point in data["points"].values():
-                    imported += len(point["hours"])
-                    await self._async_import_statistics(
-                        point["asset_id"], point["name"], point["hours"], rebuild=True
-                    )
-                await get_instance(self.hass).async_block_till_done()
-                if imported:
-                    self.hass.config_entries.async_update_entry(
-                        self.config_entry,
-                        options={
-                            **self.config_entry.options,
-                            CONF_BACKFILL_DONE: True,
-                        },
-                    )
-                    _LOGGER.warning(
-                        "Caruna+ history backfill finished (%s hours)", imported
-                    )
-                else:
-                    _LOGGER.warning("Caruna+ backfill found no hourly kWh")
-                    return
-
-            rates = self._cost_rates()
-            if not rates.enabled:
+    async def _async_run_backfill(self) -> None:
+        if not self.config_entry.options.get(CONF_BACKFILL_DONE):
+            _LOGGER.warning("Starting full Caruna+ history backfill")
+            try:
+                data = await self.hass.async_add_executor_job(self._fetch_all_history)
+            except CarunaAuthError:
+                _LOGGER.exception("Caruna+ backfill login failed")
                 return
-            if self.config_entry.options.get(CONF_COST_BACKFILL_DONE):
+            except (CarunaApiError, UpdateFailed) as err:
+                _LOGGER.warning("Caruna+ backfill failed: %s", err)
                 return
 
-            _LOGGER.warning("Starting Caruna+ cost backfill from Nord Pool")
-            points = list(self.config_entry.data.get(CONF_POINTS) or [])
-            for point in points:
-                name = point.get("name") or point[CONF_ASSET_ID]
-                await self._async_import_cost_statistics(
-                    point[CONF_ASSET_ID], name, rebuild=True
+            imported = 0
+            incomplete = bool(data.get("incomplete"))
+            for point in data["points"].values():
+                imported += len(point["hours"])
+                await self._async_import_statistics(
+                    point["asset_id"], point["name"], point["hours"], rebuild=True
                 )
             await get_instance(self.hass).async_block_till_done()
-            last = await get_instance(self.hass).async_add_executor_job(
-                get_last_statistics,
-                self.hass,
-                1,
-                cost_statistic_id_for(points[0][CONF_ASSET_ID]),
-                True,
-                {"sum"},
-            )
-            if last:
+            if imported and not incomplete:
                 self.hass.config_entries.async_update_entry(
                     self.config_entry,
                     options={
                         **self.config_entry.options,
-                        CONF_COST_BACKFILL_DONE: True,
+                        CONF_BACKFILL_DONE: True,
                     },
                 )
-                _LOGGER.warning("Caruna+ cost backfill finished")
+                _LOGGER.warning(
+                    "Caruna+ history backfill finished (%s hours)", imported
+                )
+            elif imported:
+                _LOGGER.warning("Caruna+ backfill incomplete; will retry")
+                return
             else:
+                _LOGGER.warning("Caruna+ backfill found no hourly kWh")
+                return
+
+        rates = self._cost_rates()
+        if not rates.enabled:
+            return
+        if self.config_entry.options.get(CONF_COST_BACKFILL_DONE):
+            return
+
+        _LOGGER.warning("Starting Caruna+ cost backfill from Nord Pool")
+        points = list(self.config_entry.data.get(CONF_POINTS) or [])
+        if not points:
+            return
+        for point in points:
+            name = point.get("name") or point[CONF_ASSET_ID]
+            await self._async_import_cost_statistics(
+                point[CONF_ASSET_ID], name, rebuild=True
+            )
+        await get_instance(self.hass).async_block_till_done()
+        for point in points:
+            last = await get_instance(self.hass).async_add_executor_job(
+                get_last_statistics,
+                self.hass,
+                1,
+                cost_statistic_id_for(point[CONF_ASSET_ID]),
+                True,
+                {"sum"},
+            )
+            if not last:
                 _LOGGER.warning("Caruna+ cost backfill wrote no hours; will retry")
+                return
+        self.hass.config_entries.async_update_entry(
+            self.config_entry,
+            options={
+                **self.config_entry.options,
+                CONF_COST_BACKFILL_DONE: True,
+            },
+        )
+        _LOGGER.warning("Caruna+ cost backfill finished")
 
     async def _async_import_statistics(
         self,
@@ -377,13 +428,18 @@ class CarunaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not usable:
             return
 
-        running = 0.0
-        last_start: datetime | None = None
+        window_first: tuple[datetime, float] | None = None
+        last: tuple[datetime, float] | None = None
         if not rebuild:
             last_stats = await get_instance(self.hass).async_add_executor_job(
                 get_last_statistics, self.hass, 1, stat_id, True, {"sum"}
             )
-            if last_stats:
+            last_rows = (last_stats or {}).get(stat_id) or []
+            if last_rows:
+                last = (
+                    dt_util.utc_from_timestamp(last_rows[0]["start"]),
+                    cast(float, last_rows[0]["sum"]),
+                )
                 from_time = usable[0]["start"]
                 existing = await get_instance(self.hass).async_add_executor_job(
                     statistics_during_period,
@@ -395,10 +451,16 @@ class CarunaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     None,
                     {"sum"},
                 )
-                if existing.get(stat_id):
-                    first = existing[stat_id][0]
-                    running = cast(float, first["sum"])
-                    last_start = dt_util.utc_from_timestamp(first["start"])
+                window = (existing or {}).get(stat_id) or []
+                if window:
+                    window_first = (
+                        dt_util.utc_from_timestamp(window[0]["start"]),
+                        cast(float, window[0]["sum"]),
+                    )
+
+        running, last_start = continue_sum(
+            rebuild=rebuild, window_first=window_first, last=last
+        )
 
         statistics: list[StatisticData] = []
         for item in usable:
@@ -525,6 +587,18 @@ class CarunaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         origin = dt_util.parse_datetime("2015-01-01T00:00:00+00:00")
         assert origin is not None
 
+        running = 0.0
+        last_start: datetime | None = None
+        if not rebuild:
+            last_stats = await instance.async_add_executor_job(
+                get_last_statistics, self.hass, 1, cost_id, True, {"sum"}
+            )
+            last_rows = (last_stats or {}).get(cost_id) or []
+            if last_rows:
+                last_start = dt_util.utc_from_timestamp(last_rows[0]["start"])
+                running = cast(float, last_rows[0]["sum"])
+                origin = last_start
+
         consumption = await instance.async_add_executor_job(
             statistics_during_period,
             self.hass,
@@ -539,53 +613,20 @@ class CarunaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not hours:
             return
 
-        existing_cost = await instance.async_add_executor_job(
-            statistics_during_period,
-            self.hass,
-            origin,
-            None,
-            {cost_id},
-            "hour",
-            None,
-            {"sum"},
-        )
-        have_cost = {
-            dt_util.utc_from_timestamp(row["start"])
-            for row in existing_cost.get(cost_id) or []
-        }
-        last_cost_start = max(have_cost) if have_cost else None
-
-        all_hours: list[tuple[datetime, float]] = []
-        missing: list[tuple[datetime, float]] = []
+        pending: list[tuple[datetime, float]] = []
         for row in hours:
             start = dt_util.utc_from_timestamp(row["start"])
+            if last_start is not None and start <= last_start:
+                continue
             kwh = row.get("state")
             if kwh is None:
                 continue
-            item = (start, float(kwh))
-            all_hours.append(item)
-            if start not in have_cost:
-                missing.append(item)
-        all_hours.sort()
-        missing.sort()
-        if not missing and not rebuild:
-            return
-
-        hole_before_end = bool(
-            last_cost_start is not None and missing and missing[0][0] <= last_cost_start
-        )
-        if rebuild or hole_before_end or not have_cost:
-            pending = all_hours
-            running = 0.0
-        else:
-            pending = missing
-            last_row = (existing_cost.get(cost_id) or [])[-1]
-            running = cast(float, last_row["sum"])
-
+            pending.append((start, float(kwh)))
+        pending.sort()
         if not pending:
             return
 
-        days = {dt_util.as_local(start).date() for start, _kwh in pending}
+        days = {helsinki_date(start) for start, _kwh in pending}
         spots = await self._nordpool_spots(days)
         if not spots:
             _LOGGER.warning("No Nord Pool spots for Caruna cost import")
@@ -597,7 +638,7 @@ class CarunaCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             spot = hour_spot(start, spots)
             if spot is None:
                 skipped += 1
-                continue
+                break
             cost = kwh * rates.unit_price(spot)
             running += cost
             statistics.append(StatisticData(start=start, state=cost, sum=running))

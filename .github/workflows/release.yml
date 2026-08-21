@@ -18,6 +18,11 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check tag matches manifest version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          MANIFEST=$(python3 -c "import json; print(json.load(open('custom_components/caruna/manifest.json'))['version'])")
+          test "$TAG" = "$MANIFEST"
       - name: Create GitHub Release
         env:
           GITHUB_TOKEN: ${{ github.token }}
