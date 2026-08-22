@@ -90,7 +90,7 @@ def _options_schema() -> vol.Schema:
                 NumberSelectorConfig(
                     min=0,
                     max=1,
-                    step=0.0001,
+                    step="any",
                     mode=NumberSelectorMode.BOX,
                     unit_of_measurement="EUR/kWh",
                 )
@@ -99,7 +99,7 @@ def _options_schema() -> vol.Schema:
                 NumberSelectorConfig(
                     min=0,
                     max=1,
-                    step=0.0001,
+                    step="any",
                     mode=NumberSelectorMode.BOX,
                     unit_of_measurement="EUR/kWh",
                 )
@@ -108,7 +108,7 @@ def _options_schema() -> vol.Schema:
                 NumberSelectorConfig(
                     min=0,
                     max=1,
-                    step=0.0000001,
+                    step="any",
                     mode=NumberSelectorMode.BOX,
                     unit_of_measurement="EUR/kWh",
                 )
