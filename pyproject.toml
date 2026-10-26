@@ -21,6 +21,10 @@ ha = [
 
 [tool.uv]
 default-groups = ["dev"]
+# Every homeassistant release on PyPI (through 2026.10.4) pins Pillow==12.3.0.
+# Core dev already requires Pillow==13.0.0 for the FPX/Ghostscript/TIFF fixes.
+# Override the test lock until that pin ships; the integration does not depend on Pillow.
+override-dependencies = ["pillow>=13.0.0"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
